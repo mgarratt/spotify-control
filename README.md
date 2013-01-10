@@ -3,6 +3,17 @@ spotify-control
 
 Bash script to control Spotify Linux via DBus
 
+Usage
+-----
+./spotify-control <command>
+  - play
+  - next
+  - prev
+  - getTitle
+  - getArtist
+  - getAlbum
+  - getStatus (Playing/Paused/etc)
+
 References
 ----------
 I have taken code / inspiration from the following:
