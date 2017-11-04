@@ -1,40 +1,92 @@
-#!/bin/bash
+#!/usr/bin/env python3
+"""
+A script to control Spotify from the command line, requires Spotify to be
+running. Use spotify-control -h to print usage.
+"""
+from argparse import ArgumentParser
+import logging
+import traceback
+import os
+import sys
+import time
+from spotify import SpotifyDbus
 
-if [ $# -lt 1 ]
-then
-        echo "No command?"
-        exit
-fi
 
-if [ "$(pidof spotify)" = "" ] 
-then
-  echo "Spotify is not running"
-  exit
-fi
+__author__ = 'Mark Garratt'
+__version__ = '0.0'
 
-case $1 in
-    "play")
-        dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.PlayPause
-        ;;
-    "next")
-        dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Next
-        ;;
-    "prev")
-        dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Previous
-        ;;
-    "getTitle")
-        dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:'org.mpris.MediaPlayer2.Player' string:'Metadata'|egrep -A 1 "title"|egrep -v "title"|cut -b 44-|cut -d '"' -f 1|egrep -v ^$
-        ;;
-    "getArtist")
-        dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:'org.mpris.MediaPlayer2.Player' string:'Metadata'|egrep -A 2 "artist"|egrep -v "artist"|egrep -v "array"|cut -b 27-|cut -d '"' -f 1|egrep -v ^$
-        ;;
-    "getAlbum")
-        dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:'org.mpris.MediaPlayer2.Player' string:'Metadata'|egrep -A 2 "album"|egrep -v "album"|egrep -v "array"|cut -b 44-|cut -d '"' -f 1|egrep -v ^$
-        ;;
-    "getStatus")
-        dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:'org.mpris.MediaPlayer2.Player' string:'PlaybackStatus'|grep 'string "[^"]*"'|sed 's/.*"\(.*\)"[^"]*$/\1/'
-        ;;
-    *)
-        echo "Unknown command: " $1
-        ;;
-esac
+
+def main(logging, command, args):
+    """
+    Main function to be run one logging and argument parsing has been done.
+    :param logging: Configured logging module.
+    :param command: The command to execute
+    :param args: Arguments to pass to the command
+    :return: None
+    """
+    spotify = SpotifyDbus(logging)
+
+    if command == 'PrintCommands':
+        spotify.printCommands()
+        return
+
+    attr = getattr(spotify, command)
+
+    if callable(attr):
+        result = attr(*args)
+    else:
+        if len(args) > 0:
+            setattr(spotify, command, *args)
+            attr = getattr(spotify, command)
+        result = attr
+
+    if isinstance(result, list):
+        result = ', '.join(result)
+
+    print(result)
+
+
+if __name__ == '__main__':
+    try:
+        start_time = time.time()
+
+        parser = ArgumentParser(
+            usage='%(prog)s [options] [command] [args ...]',
+            description=__doc__,
+            epilog='Use spotify-control PrintCommands for all available commands',
+            prog=os.path.basename(sys.argv[0])
+        )
+
+        parser.add_argument('command', metavar='command', type=str,
+                            help='The command to give to Spotify')
+        parser.add_argument('args', metavar='args', nargs='*', type=str,
+                            help='Argument sto pass with the Spotify command')
+        parser.add_argument('--version', action='version', version=__version__)
+        parser.add_argument('--verbose', '-v', action='count', default=0,
+                            help='increase log level [warn]')
+        parser.add_argument('--quiet', '-q', action='count', default=0,
+                            help='decrease log level [warn]')
+        parser.add_argument('--logfile', metavar='file',
+                            help='log to file instead of <stderr>')
+
+        args = parser.parse_args()
+
+        log_adjust = max(min(args.quiet - args.verbose, 2), -2) * 10
+        logging.basicConfig(
+            filename=args.logfile,
+            level=logging.WARNING + log_adjust,
+            format='%(levelname)-8s %(module) 10s: %(funcName)s %(message)s'
+        )
+
+        main(logging, args.command, args.args)
+
+        run_time = (time.time() - start_time) / 60.0
+        logging.info('Run time: {}'.format(run_time))
+        sys.exit(0)
+    except KeyboardInterrupt as e:  # Ctrl-C
+        raise e
+    except SystemExit as e:  # sys.exit()
+        raise e
+    except Exception as e:
+        logging.exception("Unexpected exception")
+        sys.exit(1)
