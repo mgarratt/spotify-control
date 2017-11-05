@@ -5,7 +5,6 @@ running. Use spotify-control -h to print usage.
 """
 from argparse import ArgumentParser
 import logging
-import traceback
 import os
 import sys
 import time
@@ -15,74 +14,92 @@ from spotify import SpotifyDbus
 __author__ = 'Mark Garratt'
 __version__ = '0.0'
 
+start_time = time.time()
 
-def main(logging, command, args):
+
+def parse_arguments():
     """
-    Main function to be run one logging and argument parsing has been done.
-    :param logging: Configured logging module.
-    :param command: The command to execute
-    :param args: Arguments to pass to the command
+    :return: Parsed command line arguments
+    """
+    parser = ArgumentParser(
+        usage='%(prog)s [options] [command] [args ...]',
+        description=__doc__,
+        epilog='Use spotify-control print_commands for all available commands',
+        prog=os.path.basename(sys.argv[0])
+    )
+
+    parser.add_argument('command', metavar='command', type=str,
+                        help='The command to give to Spotify')
+    parser.add_argument('args', metavar='args', nargs='*', type=str,
+                        help='Argument sto pass with the Spotify command')
+    parser.add_argument('--version', action='version', version=__version__)
+    parser.add_argument('--verbose', '-v', action='count', default=0,
+                        help='increase log level [warn]')
+    parser.add_argument('--quiet', '-q', action='count', default=0,
+                        help='decrease log level [warn]')
+    parser.add_argument('--logfile', metavar='file',
+                        help='log to file instead of <stderr>')
+
+    return parser.parse_args()
+
+
+def configure_logging(config):
+    """
+    :param config: Level to set logging int 0 - 2 for quiet or verbose
     :return: None
     """
-    spotify = SpotifyDbus(logging)
+    log_adjust = max(min(config.quiet - config.verbose, 2), -2) * 10
+    logging.basicConfig(
+        filename=config.logfile,
+        level=logging.WARNING + log_adjust,
+        format='%(levelname)-8s %(module) 10s: %(funcName)s %(message)s'
+    )
 
-    if command == 'PrintCommands':
-        spotify.printCommands()
-        return
 
-    attr = getattr(spotify, command)
+def execute_command_on_spotify_dbus(spotify_dbus, command, command_args=None):
+    """
+    Avoid maintaining a list of commands by calling directly onto the DBus class
+    :param spotify_dbus: Instance of SpotifyDbus
+    :param command: Command (function or attribute get/set)
+    :param command_args: Arguments to pass, if any
+    :return: Result from command
+    """
+    if command_args is None:
+        command_args = []
+
+    attr = getattr(spotify_dbus, command)
 
     if callable(attr):
-        result = attr(*args)
-    else:
-        if len(args) > 0:
-            setattr(spotify, command, *args)
-            attr = getattr(spotify, command)
-        result = attr
+        return attr(*command_args)
 
-    if isinstance(result, list):
-        result = ', '.join(result)
+    if len(command_args) > 0:
+        setattr(spotify_dbus, command, *command_args)
+        attr = getattr(spotify_dbus, command)
 
-    print(result)
+    return attr
 
 
 if __name__ == '__main__':
+    args = parse_arguments()
+
+    configure_logging(args)
+
+    spotify_dbus = SpotifyDbus(logging)
+
+    command = args.command
+    command_args = args.args
+
     try:
-        start_time = time.time()
+        result = execute_command_on_spotify_dbus(spotify_dbus, command, command_args)
 
-        parser = ArgumentParser(
-            usage='%(prog)s [options] [command] [args ...]',
-            description=__doc__,
-            epilog='Use spotify-control PrintCommands for all available commands',
-            prog=os.path.basename(sys.argv[0])
-        )
+        if isinstance(result, list):
+            result = ', '.join(result)
 
-        parser.add_argument('command', metavar='command', type=str,
-                            help='The command to give to Spotify')
-        parser.add_argument('args', metavar='args', nargs='*', type=str,
-                            help='Argument sto pass with the Spotify command')
-        parser.add_argument('--version', action='version', version=__version__)
-        parser.add_argument('--verbose', '-v', action='count', default=0,
-                            help='increase log level [warn]')
-        parser.add_argument('--quiet', '-q', action='count', default=0,
-                            help='decrease log level [warn]')
-        parser.add_argument('--logfile', metavar='file',
-                            help='log to file instead of <stderr>')
-
-        args = parser.parse_args()
-
-        log_adjust = max(min(args.quiet - args.verbose, 2), -2) * 10
-        logging.basicConfig(
-            filename=args.logfile,
-            level=logging.WARNING + log_adjust,
-            format='%(levelname)-8s %(module) 10s: %(funcName)s %(message)s'
-        )
-
-        main(logging, args.command, args.args)
-
-        run_time = (time.time() - start_time) / 60.0
-        logging.info('Run time: {}'.format(run_time))
-        sys.exit(0)
+        if result is not None:
+            print(result)
+    except AttributeError:
+        logging.error('Unknown command \'{}\''.format(command))
+        sys.exit(1)
     except KeyboardInterrupt as e:  # Ctrl-C
         raise e
     except SystemExit as e:  # sys.exit()
@@ -90,3 +107,7 @@ if __name__ == '__main__':
     except Exception as e:
         logging.exception("Unexpected exception")
         sys.exit(1)
+
+    run_time = (time.time() - start_time) / 60.0
+    logging.info('Run time: {}'.format(run_time))
+    sys.exit(0)

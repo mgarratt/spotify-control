@@ -149,11 +149,13 @@ class SpotifyDbus:
                         pass
         logging.info("Completed introspection")
 
-    def printCommands(self):
+    def print_commands(self):
         """
         Prints all available method and properties as signatures
         :return: None
         """
+        print('print_commands() -> commands: s')
+
         for method in self.methods:
             method_description = method.method_name + '('
             for arg in method.args:

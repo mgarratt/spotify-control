@@ -29,7 +29,7 @@ optional arguments:
   --quiet, -q     decrease log level
   --logfile file  log to file instead of <stderr>
 
-Use spotify-control PrintCommands for all available commands
+Use spotify-control print_commands for all available commands
 
 ```
 
